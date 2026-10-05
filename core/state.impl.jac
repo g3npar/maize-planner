@@ -135,28 +135,63 @@ impl usePlanner.saveAssignment(d: AssignmentDraft) -> AssignmentView | None {
     return None;
 }
 
+"""Reload once no status write is pending, then show hidden items again
+(the reload has dropped the ones that are done)."""
+impl usePlanner.settle -> None {
+    if PENDING["writes"] > 0 {
+        return;
+    }
+    announce_change(instanceId);
+    await refresh();
+    if PENDING["writes"] == 0 {
+        hiddenIds = [];
+    }
+}
+
 impl usePlanner.setStatus(id: str, status: str) -> None {
-    busyId = id;
+    PENDING["writes"] += 1;
     try {
         res = root spawn set_status(id=id, status=status);
         if res.reports {
             replaceItem(res.reports[0]);
         }
-        announce_change(instanceId);
-        await refresh();
     } except Exception as e {
+        hiddenIds = [h for h in hiddenIds if h != id];
         fail(e);
     } finally {
-        busyId = "";
+        PENDING["writes"] -= 1;
     }
+    await settle();
 }
 
+"""Checking an item off hides it at once; the write and the reload follow in
+the background, and rapid clicks share a single reload."""
 impl usePlanner.toggleDone(a: AssignmentView) -> None {
     finishing = a.status != "done";
-    await setStatus(a.id, "done" if finishing else "todo");
     if finishing {
+        hiddenIds = hiddenIds + [a.id];
         notice = "Nice! “" + a.title + "” is done.";
     }
+    await setStatus(a.id, "done" if finishing else "todo");
+}
+
+impl usePlanner.markDone(ids: list[str]) -> None {
+    if not ids {
+        return;
+    }
+    hiddenIds = hiddenIds + ids;
+    PENDING["writes"] += 1;
+    try {
+        res = root spawn set_status_many(ids=ids, status="done");
+        changed = res.reports[0] if res.reports else 0;
+        notice = f"Marked {changed} done.";
+    } except Exception as e {
+        hiddenIds = [h for h in hiddenIds if h not in ids];
+        fail(e);
+    } finally {
+        PENDING["writes"] -= 1;
+    }
+    await settle();
 }
 
 impl usePlanner.setScore(id: str, score: float | None, points: float) -> None {

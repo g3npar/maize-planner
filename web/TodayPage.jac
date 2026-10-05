@@ -23,18 +23,28 @@ def:pub Group(
     items: list[AssignmentView],
     color: str,
     p: Planner,
-    onOpen: Callable[[AssignmentView], None]
+    onOpen: Callable[[AssignmentView], None],
+    bulk: bool = False
 ) -> JsxElement {
-    if not items {
+    shown = p.visible(items);
+    if not shown {
         return <></>;
     }
     <div>
         <div className="section-title">
             <span style={{"color": color}}>●</span>{title}
-            <span className="muted">{str(len(items))}</span>
+            <span className="muted">{str(len(shown))}</span>
+            {bulk and len(shown) > 1 and <>
+                <span className="spacer"></span>
+                <button className="btn ghost sm" style={{"textTransform": "none", "letterSpacing": "normal"}} onClick={lambda (e: MouseEvent) {
+                    if window.confirm(f"Mark all {len(shown)} {title.lower()} assignments done?") {
+                        p.markDone([a.id for a in shown]);
+                    }
+                }}><CheckCircle2 size={14}/> Mark all done</button>
+            </>}
         </div>
         <div className="list">
-            {for a in items {
+            {for a in shown {
                 <AssignmentRow
                     key={a.id}
                     a={a}
@@ -135,7 +145,7 @@ def:pub TodayPage(
                     hint="Add something with the bar above - try “eecs482 p3 due fri 11:59pm #ag”."
                     emoji="🎉"
                 />}
-                <Group title="Overdue" items={d.overdue} color="#dc2626" p={p} onOpen={onOpen}/>
+                <Group title="Overdue" items={d.overdue} color="#dc2626" p={p} onOpen={onOpen} bulk={True}/>
                 <Group title="Today" items={d.today} color="#ea580c" p={p} onOpen={onOpen}/>
                 <Group title="Tomorrow" items={d.tomorrow} color="#ca8a04" p={p} onOpen={onOpen}/>
                 <Group title="This week" items={d.week} color="#2563eb" p={p} onOpen={onOpen}/>

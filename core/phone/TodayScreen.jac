@@ -29,12 +29,13 @@ def:pub DueGroup(
     p: Planner,
     onOpen: Callable[[AssignmentView], None]
 ) -> JsxElement {
-    if not items {
+    shown = p.visible(items);
+    if not shown {
         return <View/>;
     }
     <View style={{"gap": 8}}>
-        <SectionHeader title={title} count={len(items)} color={color}/>
-        {for a in items {
+        <SectionHeader title={title} count={len(shown)} color={color}/>
+        {for a in shown {
             <TaskRow key={a.id} a={a} busy={p.busyId == a.id} onToggle={p.toggleDone} onOpen={onOpen}/>
         }}
     </View>

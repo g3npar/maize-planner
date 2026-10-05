@@ -808,6 +808,26 @@ walker set_status {
     }
 }
 
+"""Set many assignments' status in one call (the "Mark all done" button)."""
+walker set_status_many {
+    has ids: list[str] = [],
+        status: str = "done",
+        reports: list[int] = [];
+
+    can update with Root entry {
+        now = lg.now_local();
+        changed = 0;
+        for ref in self.ids {
+            (a, _) = _find_assignment(ref);
+            if a is not None and a.status != self.status {
+                _set_status(a, self.status, now);
+                changed += 1;
+            }
+        }
+        report changed;
+    }
+}
+
 walker set_score {
     has id: str = "",
         score: float | None = None,
@@ -967,14 +987,17 @@ walker save_settings {
 
 # ========================================================= canvas sync ====
 
-"""Create or update the assignment for a Canvas item. A calendar-feed item
-carries no points, so `keep_points` leaves the stored points alone."""
+"""Create or update the assignment for a Canvas item.
+
+A calendar-feed item (`from_feed`) has no points or submission status: the
+stored points are left alone, and an assignment that is already past due when
+it is first imported is assumed submitted and marked done."""
 def _apply_canvas_item(
     course: Course,
     item: CanvasAssignment,
     now: datetime,
     result: SyncResult,
-    keep_points: bool = False
+    from_feed: bool = False
 ) {
     existing: Assignment | None = None;
     for a in [course -->[?:Assignment]] {
@@ -1001,7 +1024,7 @@ def _apply_canvas_item(
             canvas_id=item.canvas_id,
             created=lg.to_iso(now)
         );
-        if item.submitted or item.score is not None {
+        if item.submitted or item.score is not None or (from_feed and due is not None and due < now) {
             made.status = "done";
             made.completed = item.due or lg.to_iso(now);
         }
@@ -1010,7 +1033,7 @@ def _apply_canvas_item(
         return;
     }
     changed = False;
-    points = existing.points if keep_points else item.points;
+    points = existing.points if from_feed else item.points;
     if existing.title != item.title or existing.due != item.due or existing.points != points {
         existing.title = item.title;
         existing.due = item.due;
@@ -1094,7 +1117,7 @@ def _sync_feed(prof: Profile, now: datetime, result: SyncResult) {
         if key not in courses {
             courses[key] = _link_canvas_course(rc, now, result);
         }
-        _apply_canvas_item(courses[key], item, now, result, keep_points=True);
+        _apply_canvas_item(courses[key], item, now, result, from_feed=True);
     }
     result.ok = True;
     result.message = (

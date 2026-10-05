@@ -15,6 +15,7 @@ import from core.planner {
     save_assignment,
     quick_add,
     set_status,
+    set_status_many,
     set_score,
     delete_assignment,
     set_subtasks,
@@ -56,7 +57,11 @@ import from "@jac/runtime" {
 }
 import from "react" { useEffect }
 
-glob POLL_MS: int = 30000;
+glob POLL_MS: int = 30000,
+     AUTO_SYNC_HOURS: int = 3,
+     # Status writes still in flight; the reload waits for the last one.
+     # A mutable glob, not hook state, so it is current after an await.
+     PENDING: dict[str, int] = {"writes": 0};
 
 # ---------------------------------------------------------------- drafts ----
 
@@ -249,6 +254,7 @@ obj Planner {
         syncBusy: bool,
         syncResult: SyncResult | None,
         busyId: str,
+        hiddenIds: list[str],
         refresh: Callable[[], None],
         setFilterCourse: Callable[[str], None],
         setFilterSource: Callable[[str], None],
@@ -261,6 +267,8 @@ obj Planner {
         saveAssignment: Callable[[AssignmentDraft], AssignmentView | None],
         setStatus: Callable[[str, str], None],
         toggleDone: Callable[[AssignmentView], None],
+        markDone: Callable[[list[str]], None],
+        visible: Callable[[list[AssignmentView]], list[AssignmentView]],
         setScore: Callable[[str, float | None, float], None],
         deleteAssignment: Callable[[str], None],
         toggleSubtask: Callable[[str, int], None],
@@ -339,6 +347,8 @@ def:pub usePlanner -> Planner {
         syncBusy: bool = False,
         syncResult: SyncResult | None = None,
         busyId: str = "",
+        hiddenIds: list[str] = [],
+        autoSynced: bool = False,
         instanceId: str = str(Math.random());
 
     async def refresh -> None;
@@ -350,6 +360,8 @@ def:pub usePlanner -> Planner {
     async def saveAssignment(d: AssignmentDraft) -> AssignmentView | None;
     async def setStatus(id: str, status: str) -> None;
     async def toggleDone(a: AssignmentView) -> None;
+    async def markDone(ids: list[str]) -> None;
+    async def settle -> None;
     async def setScore(id: str, score: float | None, points: float) -> None;
     async def deleteAssignment(id: str) -> None;
     async def toggleSubtask(id: str, index: int) -> None;
@@ -424,6 +436,27 @@ def:pub usePlanner -> Planner {
         [instanceId]
     );
 
+    # New Canvas assignments only arrive on a sync, so sync on open when the
+    # last one is more than AUTO_SYNC_HOURS old (once per page load).
+    can with [dashboard] entry {
+        d = dashboard;
+        if d is None or autoSynced or syncBusy or not d.canvas_connected {
+            return;
+        }
+        autoSynced = True;
+        age_ms = Date.parse(d.now) - Date.parse(d.last_sync) if d.last_sync else Infinity;
+        if not (age_ms < AUTO_SYNC_HOURS * 3600000) {
+            syncCanvas();
+        }
+    }
+
+    def visible(items: list[AssignmentView]) -> list[AssignmentView] {
+        if not hiddenIds {
+            return items;
+        }
+        return [a for a in items if a.id not in hiddenIds];
+    }
+
     def findAssignment(id: str) -> AssignmentView | None {
         for a in assignments {
             if a.id == id {
@@ -464,6 +497,7 @@ def:pub usePlanner -> Planner {
         syncBusy=syncBusy,
         syncResult=syncResult,
         busyId=busyId,
+        hiddenIds=hiddenIds,
         refresh=lambda {
             clear_read_cache();
             refresh();
@@ -479,6 +513,8 @@ def:pub usePlanner -> Planner {
         saveAssignment=saveAssignment,
         setStatus=setStatus,
         toggleDone=toggleDone,
+        markDone=markDone,
+        visible=visible,
         setScore=setScore,
         deleteAssignment=deleteAssignment,
         toggleSubtask=toggleSubtask,
