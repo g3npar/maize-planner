@@ -1,0 +1,74 @@
+[project]
+name = "personal-planner"
+version = "0.1.0"
+description = "Maize Planner: classes, Canvas / Gradescope / Autograder deadlines, grades and AI study plans - web, mobile and CLI on one Jac server"
+default-app = "web"
+jac-version = "==0.37.21"
+
+[apps]
+[apps.planner]
+kind = "service"
+entry-point = "core.planner"
+
+[apps.web]
+kind = "web-app"
+entry-point = "web.main"
+
+[apps.cli]
+kind = "cli"
+entry-point = "cli.main"
+
+[apps.mobile]
+kind = "mobile"
+entry-point = "mobile.main"
+
+[dependencies]
+[dependencies.npm]
+react-native-web = "^0.21.2"
+lucide-react = "^0.469.0"
+react = "^19.2.0"
+react-dom = "^19.2.0"
+react-router-dom = "^6.22.0"
+react-error-boundary = "^5.0.0"
+"@tanstack/react-form" = "^1.33.0"
+zod = "^4.3.6"
+
+[dependencies.npm.dev]
+vite = "^6.4.1"
+"@vitejs/plugin-react" = "^4.7.0"
+typescript = "^5.3.3"
+"@types/react" = "^19.2.0"
+"@types/react-dom" = "^19.2.0"
+
+[dev-dependencies]
+watchdog = ">=3.0.0"
+
+[test]
+directories = ["core", "cli"]
+
+[client.app_meta_data]
+title = "Maize Planner"
+description = "Canvas, Gradescope and Autograder deadlines, class schedule, grades and AI study plans."
+theme_color = "#1d4ed8"
+
+[apps.mobile.dependencies]
+[apps.mobile.dependencies.npm]
+react-native-svg = "^15.13.0"
+lucide-react = "^0.469.0"
+lucide-react-native = "^0.469.0"
+
+[apps.mobile.dependencies.npm.native]
+react-native-svg = "^15.13.0"
+lucide-react-native = "^0.469.0"
+
+# byLLM powers the AI study plan and assignment breakdowns. The model is
+# picked at runtime from whichever key is set (see core/advisor.jac);
+# without a key the planner uses its built-in heuristics.
+[byllm]
+[byllm.call_params]
+temperature = 0.3
+
+# Don't create the built-in admin/changeme account. It would be publicly
+# reachable on the hosted server, and the planner doesn't use the admin portal.
+[scale.admin]
+enabled = false

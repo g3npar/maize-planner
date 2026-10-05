@@ -1,0 +1,8 @@
+# Jac build output, caches and the embedded database files
+.jac/
+dist/
+node_modules/
+__pycache__/
+*.log
+planner.ics
+.env

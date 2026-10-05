@@ -1,0 +1,9 @@
+.jac/
+.git/
+.github/
+node_modules/
+dist/
+docs/
+*.log
+planner.ics
+.env

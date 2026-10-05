@@ -1,0 +1,16 @@
+# Render blueprint for the planner server. In Render: New > Blueprint, pick
+# this repo, then fill in JAC_DB_URL (e.g. a free Neon Postgres URL).
+services:
+  - type: web
+    name: maize-planner
+    runtime: docker
+    plan: free
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: JAC_DB_URL
+        sync: false
+      - key: JAC_SERVE_AUTH_SECRET
+        generateValue: true
+      - key: ANTHROPIC_API_KEY
+        sync: false

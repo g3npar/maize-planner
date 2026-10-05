@@ -1,0 +1,61 @@
+# Builds the web UI as static files and publishes it to GitHub Pages.
+# The planner server runs elsewhere (see Dockerfile / render.yaml); its URL is
+# baked into the bundle from the PLANNER_API_URL repository variable.
+name: Deploy web UI to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      JAC_CLIENT_API_BASE_URL: ${{ vars.PLANNER_API_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the server URL is set
+        run: |
+          if [ -z "$JAC_CLIENT_API_BASE_URL" ]; then
+            echo "::error::Set the PLANNER_API_URL repository variable (Settings > Secrets and variables > Actions > Variables) to your hosted planner server, e.g. https://maize-planner.onrender.com"
+            exit 1
+          fi
+
+      - name: Install Jac
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/jaseci-labs/jaseci/main/scripts/install.sh | bash -s -- --version 0.37.21
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Build the web client
+        run: jac build --as client web
+
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp .jac/client/web/dist/index.html .jac/client/web/dist/styles.css .jac/client/web/dist/client.*.js _site/
+          # Pages serves this at /<repo>/, so make the asset paths relative.
+          sed -i -E 's#(href|src)="/#\1="./#g' _site/index.html
+          touch _site/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
