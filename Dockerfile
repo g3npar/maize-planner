@@ -10,7 +10,14 @@
 FROM jaseci/jaclang:0.37.21
 
 WORKDIR /app
-COPY . .
+
+# The image ships its bundled bun without the execute bit, and as root, so the
+# non-root `jac` user can't run (or fix) it.
+USER root
+RUN chmod a+rx /opt/jac/state/rt/*/site/jaclang/client/_bun/bun
+USER jac
+
+COPY --chown=jac:jac . .
 
 # Install npm packages and compile ahead of time so the server boots quickly.
 RUN jac build --as client web
