@@ -1,5 +1,8 @@
-# The planner server (API + web UI) for hosting outside your machine, e.g. on
-# Render. The GitHub Pages site talks to this server.
+# The planner API server for hosting outside your machine, e.g. on Render.
+# The web UI is served by GitHub Pages and talks to this server, so it only
+# runs the headless `planner` service (core/planner.jac), not the `web` app:
+# serving `web` rebuilds the client bundle on boot and needs ~1 GB, well over
+# Render's free 512 MB.
 #
 # Environment:
 #   JAC_DB_URL              Postgres URL (required on hosts without a disk,
@@ -19,9 +22,12 @@ USER jac
 
 COPY --chown=jac:jac . .
 
-# Install npm packages and compile ahead of time so the server boots quickly.
-RUN jac build --as client web
+# Compile the server modules ahead of time (--faux compiles and prints the
+# endpoints without serving). Compiling peaks near 500 MB, so doing it at boot
+# gets the container killed; with the cache warm the server starts in ~60 MB.
+# Drop the embedded database --faux creates so it doesn't ship in the image.
+RUN jac run --faux planner && rm -rf .jac/data
 
 EXPOSE 8000
 ENTRYPOINT []
-CMD ["jac", "run", "--serve", "web", "--host", "0.0.0.0"]
+CMD ["jac", "run", "--serve", "planner", "--host", "0.0.0.0"]
