@@ -29,6 +29,7 @@ import from core.planner {
     delete_meeting,
     get_settings,
     save_settings,
+    save_calendar,
     sync_canvas,
     study_plan,
     export_ics,
@@ -143,7 +144,8 @@ obj Session {
         setPassword: Callable[[str], None],
         toggleMode: Callable[[], None],
         submit: Callable[[], None],
-        logout: Callable[[], None];
+        logout: Callable[[], None],
+        rename: Callable[[str], str];
 }
 
 glob CACHE_PREFIX: str = "planner_snapshot_v1:";
@@ -231,6 +233,46 @@ def:pub useSession -> Session {
         }
     }
 
+    """Change the sign-in username. Jac's server has PUT /user/username but the
+    client runtime has no helper for it. Returns "" on success, else why not."""
+    async def rename(new_name: str) -> str {
+        name = new_name.strip();
+        if not name {
+            return "Enter a username";
+        }
+        if name == username {
+            return "";
+        }
+        base: any = globalThis.__JAC_API_BASE_URL__;
+        try {
+            resp = await fetch(
+                (base or "") + "/user/username",
+                {
+                    "method": "PUT",
+                    "headers": {
+                        "Content-Type": "application/json",
+                        "Authorization": "Bearer " + (__getLocalStorage("jac_token") or "")
+                    },
+                    "body": JSON.stringify({"new_username": name, "current_username": username})
+                }
+            );
+            body: any = await resp.json();
+            if not resp.ok or not body.ok {
+                err: any = body.error;
+                return (err.message if err else "") or "That username is taken";
+            }
+            if body.data and body.data.token {
+                __setLocalStorage("jac_token", body.data.token);
+            }
+        } except Exception {
+            return "Can't reach the planner server";
+        }
+        __removeLocalStorage(CACHE_PREFIX + username.strip());
+        __setLocalStorage("planner_username", name);
+        username = name;
+        return "";
+    }
+
     def logout {
         jacLogout();
         __removeLocalStorage(CACHE_PREFIX + username.strip());
@@ -255,7 +297,8 @@ def:pub useSession -> Session {
             error = "";
         },
         submit=submit,
-        logout=logout
+        logout=logout,
+        rename=rename
     );
 }
 
@@ -308,6 +351,7 @@ obj Planner {
         addMeeting: Callable[[str, str, list[int], str, str, str], None],
         deleteMeeting: Callable[[str], None],
         saveSettings: Callable[[str, str, str, str, bool], None],
+        saveCalendar: Callable[[str, bool], None],
         syncCanvas: Callable[[], None],
         makePlan: Callable[[float, str, bool], None],
         loadDemo: Callable[[], None],
@@ -404,6 +448,7 @@ def:pub usePlanner -> Planner {
     ) -> None;
     async def deleteMeeting(id: str) -> None;
     async def saveSettings(name: str, url: str, token: str, feed: str, clear: bool) -> None;
+    async def saveCalendar(url: str, clear: bool) -> None;
     async def syncCanvas -> None;
     async def makePlan(hours: float, goal: str, useAi: bool) -> None;
     async def loadDemo -> None;
@@ -478,7 +523,7 @@ def:pub usePlanner -> Planner {
     # last one is more than AUTO_SYNC_HOURS old (once per page load).
     can with [dashboard] entry {
         d = dashboard;
-        if d is None or autoSynced or syncBusy or not d.canvas_connected {
+        if d is None or autoSynced or syncBusy or not (d.canvas_connected or d.calendar_connected) {
             return;
         }
         autoSynced = True;
@@ -563,6 +608,7 @@ def:pub usePlanner -> Planner {
         addMeeting=addMeeting,
         deleteMeeting=deleteMeeting,
         saveSettings=saveSettings,
+        saveCalendar=saveCalendar,
         syncCanvas=syncCanvas,
         makePlan=makePlan,
         loadDemo=loadDemo,

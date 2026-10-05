@@ -35,9 +35,12 @@ import from core.views {
 import core.logic as lg;
 import core.canvas as cv;
 import core.advisor as adv;
+import core.gcal as gc;
 import from core.logic { GradeInput, DAY_SHORT, SOURCES, STATUSES }
 import from core.canvas { CanvasError, CanvasAssignment, CanvasCourse }
 import from core.advisor { TaskBrief, Busy }
+
+glob GCAL_COLOR: str = "#64748b";
 
 glob PALETTE: list[str] = [
          "#2563eb",
@@ -65,6 +68,9 @@ node Profile {
         canvas_url: str = "https://umich.instructure.com",
         canvas_token: str = "",
         canvas_feed_url: str = "",
+        gcal_url: str = "",
+        gcal_events: str = "",
+        gcal_synced: str = "",
         last_sync: str = "",
         last_sync_summary: str = "";
 }
@@ -380,6 +386,37 @@ def _slots_on(day: datetime, now: datetime) -> list[ClassSlot] {
             );
         }
     }
+    # Google Calendar events show up as slots too, so Today, the week view
+    # and the study plan's busy time all see them.
+    events = gc.load_events(_profile().gcal_events);
+    for (i, (ev, begin, finish)) in enumerate(gc.events_on(events, day)) {
+        state = "upcoming";
+        if not ev.all_day {
+            if finish <= now {
+                state = "past";
+            } elif begin <= now {
+                state = "now";
+            }
+        }
+        start_s = "" if ev.all_day else begin.strftime("%H:%M");
+        end_s = "" if ev.all_day else (
+            "23:59" if finish.date() > begin.date() else finish.strftime("%H:%M")
+        );
+        slots.append(
+            ClassSlot(
+                course_id=f"gcal-{i}",
+                course_code=ev.title,
+                color=GCAL_COLOR,
+                kind="Calendar",
+                day=weekday,
+                start=start_s,
+                end=end_s,
+                time_label="All day" if ev.all_day else lg.range_label(start_s, end_s),
+                location=ev.location,
+                state=state
+            )
+        );
+    }
     return sorted(slots, key=lambda (s: ClassSlot) -> str { s.start; });
 }
 
@@ -441,6 +478,7 @@ def _dashboard -> Dashboard {
         classes_today=_slots_on(now, now),
         course_count=len([root -->[?:Course]]),
         canvas_connected=bool(prof.canvas_token or prof.canvas_feed_url),
+        calendar_connected=bool(prof.gcal_url),
         last_sync=prof.last_sync
     );
     upcoming = [s for s in dash.classes_today if s.state != "past"];
@@ -1007,6 +1045,9 @@ def _settings_view(p: Profile) -> SettingsView {
         has_token=bool(token),
         token_hint=("…" + token[-4:]) if len(token) >= 8 else "",
         has_feed=bool(p.canvas_feed_url),
+        has_gcal=bool(p.gcal_url),
+        gcal_count=len(gc.load_events(p.gcal_events)),
+        gcal_synced=p.gcal_synced,
         last_sync=p.last_sync,
         last_sync_summary=p.last_sync_summary,
         ai_ready=bool(adv.ai_model_name()),
@@ -1050,6 +1091,35 @@ walker save_settings {
         }
         report _settings_view(p);
     }
+}
+
+"""Store (or with `clear`, remove) the Google Calendar iCal link."""
+walker save_calendar {
+    has url: str = "",
+        clear: bool = False,
+        reports: list[SettingsView] = [];
+
+    can save with Root entry {
+        p = _profile();
+        if self.clear {
+            p.gcal_url = "";
+            p.gcal_events = "";
+            p.gcal_synced = "";
+        } elif self.url.strip() {
+            p.gcal_url = gc.clean_calendar_url(self.url);
+        }
+        report _settings_view(p);
+    }
+}
+
+"""Re-download the calendar, keeping events from last week to ~4 months out."""
+def _refresh_calendar(prof: Profile, now: datetime) -> int {
+    text = gc.fetch_calendar(prof.gcal_url);
+    lo = lg.start_of_week(now) - timedelta(days=7);
+    events = gc.parse_calendar(text, lo, now + timedelta(days=120));
+    prof.gcal_events = gc.dump_events(events);
+    prof.gcal_synced = lg.to_iso(now);
+    return len(events);
 }
 
 # ========================================================= canvas sync ====
@@ -1200,13 +1270,31 @@ walker sync_canvas {
         prof = _profile();
         result = SyncResult();
         now = lg.now_local();
+        cal_note = "";
+        if prof.gcal_url {
+            try {
+                cal_note = f" Google Calendar: {_refresh_calendar(prof, now)} events.";
+            } except gc.CalendarError as e {
+                result.errors.append("Google Calendar: " + e.message);
+            }
+        }
         if not prof.canvas_token and not prof.canvas_feed_url {
-            result.message = "Add a Canvas calendar feed or access token in Settings first.";
+            if prof.gcal_url {
+                result.ok = not result.errors;
+                result.message = cal_note.strip() or "Google Calendar sync failed.";
+                if result.ok {
+                    prof.last_sync = lg.to_iso(now);
+                    prof.last_sync_summary = result.message;
+                }
+            } else {
+                result.message = "Add a Canvas calendar feed or access token in Settings first.";
+            }
             report result;
             return;
         }
         if not prof.canvas_token {
             _sync_feed(prof, now, result);
+            result.message += cal_note;
             if result.ok {
                 prof.last_sync = lg.to_iso(now);
                 prof.last_sync_summary = result.message;
@@ -1242,6 +1330,7 @@ walker sync_canvas {
         result.message = (
             f"Synced {len(remote)} courses: {result.assignments_added} new, "
             + f"{result.assignments_updated} updated, {result.marked_done} marked done."
+            + cal_note
         );
         prof.last_sync = lg.to_iso(now);
         prof.last_sync_summary = result.message;

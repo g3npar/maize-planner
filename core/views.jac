@@ -141,6 +141,7 @@ obj Dashboard {
         stats: Stats = Stats(),
         course_count: int = 0,
         canvas_connected: bool = False,
+        calendar_connected: bool = False,
         last_sync: str = "";
 }
 
@@ -150,6 +151,9 @@ obj SettingsView {
         has_token: bool = False,
         token_hint: str = "",
         has_feed: bool = False,
+        has_gcal: bool = False,
+        gcal_count: int = 0,
+        gcal_synced: str = "",
         last_sync: str = "",
         last_sync_summary: str = "",
         ai_ready: bool = False,

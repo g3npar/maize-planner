@@ -375,6 +375,18 @@ impl usePlanner.saveSettings(
     }
 }
 
+impl usePlanner.saveCalendar(url: str, clear: bool) -> None {
+    try {
+        res = root spawn save_calendar(url=url, clear=clear);
+        settings = res.reports[0] if res.reports else settings;
+        notice = "Google Calendar disconnected." if clear else "Google Calendar saved.";
+        announce_change(instanceId);
+        await refresh();
+    } except Exception as e {
+        fail(e);
+    }
+}
+
 impl usePlanner.syncCanvas -> None {
     syncBusy = True;
     syncResult = None;

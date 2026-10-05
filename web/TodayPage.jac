@@ -93,13 +93,13 @@ def:pub TodayPage(
                 <button className="btn" onClick={lambda (e: MouseEvent) { go("plan"); }}>
                     <Sparkles size={16}/> Plan my session
                 </button>
-                {d.canvas_connected and <button
+                {(d.canvas_connected or d.calendar_connected) and <button
                     className="btn"
                     disabled={p.syncBusy}
                     onClick={lambda (e: MouseEvent) { p.syncCanvas(); }}
                 >
                     <RefreshCw size={16} className={"spin" if p.syncBusy else ""}/>
-                    {"Syncing…" if p.syncBusy else "Sync Canvas"}
+                    {"Syncing…" if p.syncBusy else ("Sync Canvas" if d.canvas_connected else "Sync calendar")}
                 </button>}
             </div>
         </div>

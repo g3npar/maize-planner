@@ -203,7 +203,7 @@ def clean_feed_url(url: str) -> str {
     return feed;
 }
 
-def _ics_unescape(text: str) -> str {
+def ics_unescape(text: str) -> str {
     out: list[str] = [];
     i = 0;
     while i < len(text) {
@@ -243,7 +243,13 @@ def ics_events(text: str) -> list[dict[str, tuple[str, str]]] {
         } elif current is not None and ":" in line {
             (head, value) = line.split(":", 1);
             (name, _, params) = head.partition(";");
-            current[name.upper()] = (params, value);
+            key = name.upper();
+            # A recurring event can list skipped dates on several lines.
+            if key in ["EXDATE", "RDATE"] and key in current {
+                current[key] = (params, ",".join([current[key][1], value]));
+            } else {
+                current[key] = (params, value);
+            }
         }
     }
     return events;
@@ -287,8 +293,8 @@ def parse_feed(text: str) -> list[tuple[CanvasCourse, CanvasAssignment]] {
     out: list[tuple[CanvasCourse, CanvasAssignment]] = [];
     seen: set[int] = set();
     for ev in ics_events(text) {
-        uid = _ics_unescape(ev.get("UID", ("", ""))[1]).strip();
-        url = _ics_unescape(ev.get("URL", ("", ""))[1]).strip();
+        uid = ics_unescape(ev.get("UID", ("", ""))[1]).strip();
+        url = ics_unescape(ev.get("URL", ("", ""))[1]).strip();
         m = FEED_ASSIGNMENT_RE.search(url);
         if m is None {
             m = FEED_UID_RE.search(uid);
@@ -301,7 +307,7 @@ def parse_feed(text: str) -> list[tuple[CanvasCourse, CanvasAssignment]] {
             continue;
         }
         seen.add(aid);
-        summary = _ics_unescape(ev.get("SUMMARY", ("", ""))[1]).strip();
+        summary = ics_unescape(ev.get("SUMMARY", ("", ""))[1]).strip();
         sm = FEED_SUMMARY_RE.match(summary);
         title = (sm.group(1) if sm is not None else summary).strip() or "Untitled";
         label = sm.group(2).strip() if sm is not None else "";
@@ -310,7 +316,7 @@ def parse_feed(text: str) -> list[tuple[CanvasCourse, CanvasAssignment]] {
         bm = FEED_BASE_RE.match(url);
         base = bm.group(1) if bm is not None else "";
         (params, value) = ev.get("DTSTART", ev.get("DUE", ("", "")));
-        description = _ics_unescape(ev.get("DESCRIPTION", ("", ""))[1]);
+        description = ics_unescape(ev.get("DESCRIPTION", ("", ""))[1]);
         (source, external) = detect_source({"name": title, "description": description});
         course = CanvasCourse(
             canvas_id=cid,

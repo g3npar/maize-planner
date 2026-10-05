@@ -1,6 +1,6 @@
 """Settings: Canvas connection, AI status, CLI setup, export, account."""
 
-import from "lucide-react" { Link2, RefreshCw, Sparkles, Terminal, Download, User, Sun, Moon, Monitor, Database }
+import from "lucide-react" { Link2, RefreshCw, Sparkles, Terminal, Download, User, Sun, Moon, Monitor, Database, CalendarDays }
 import from core.state { Planner }
 
 def:pub SettingsPage(
@@ -13,6 +13,9 @@ def:pub SettingsPage(
         url: str = "",
         token: str = "",
         feed: str = "",
+        newUsername: str = "",
+        gcal: str = "",
+        renameMsg: str = "",
         loaded: bool = False;
 
     can with entry {
@@ -35,6 +38,23 @@ def:pub SettingsPage(
     badge = "";
     if st is not None {
         badge = ("Connected " + st.token_hint) if st.has_token else "Calendar feed connected";
+    }
+
+    async def change_username -> None {
+        problem = await p.session.rename(newUsername);
+        if problem {
+            renameMsg = problem;
+        } else {
+            renameMsg = "";
+            newUsername = "";
+            p.say("Username changed - use it next time you sign in.");
+        }
+    }
+
+    async def save_calendar -> None {
+        await p.saveCalendar(gcal, False);
+        gcal = "";
+        await p.syncCanvas();
     }
 
     async def save -> None {
@@ -90,6 +110,28 @@ def:pub SettingsPage(
                 </div>
             </div>
             <div className="card">
+                <div className="card-head"><CalendarDays size={17}/><h2>Google Calendar</h2>
+                    <span className="spacer"></span>
+                    {st is not None and st.has_gcal and <span className="badge" style={{"--chip": "#16a34a"}}>{str(st.gcal_count) + " events"}</span>}
+                </div>
+                <div className="stack">
+                    <div className="muted small">
+                        Your Google events show up on Today and in the week view, and the study plan keeps them free. In Google Calendar open <b>Settings → your calendar → Integrate calendar</b> and copy <b>Secret address in iCal format</b>. Events refresh with every sync.
+                    </div>
+                    <div className="field">
+                        <label>Secret iCal address {st is not None and st.has_gcal and <span className="muted">(leave blank to keep the current one)</span>}</label>
+                        <input className="input" type="password" value={gcal} placeholder="https://calendar.google.com/calendar/ical/.../private-.../basic.ics" onChange={lambda (e: ChangeEvent) { gcal = e.target.value; }}/>
+                    </div>
+                    <div className="row-flex">
+                        <button className="btn primary" disabled={p.syncBusy or not (gcal.strip() or (st is not None and st.has_gcal))} onClick={lambda (e: MouseEvent) { save_calendar(); }}>
+                            <RefreshCw size={15} className={"spin" if p.syncBusy else ""}/>{"Syncing…" if p.syncBusy else "Save & sync now"}
+                        </button>
+                        {st is not None and st.has_gcal and <button className="btn danger" onClick={lambda (e: MouseEvent) { p.saveCalendar("", True); }}>Disconnect</button>}
+                    </div>
+                    {st is not None and st.gcal_synced and <div className="muted tiny">Last refreshed {st.gcal_synced.replace("T", " ")}</div>}
+                </div>
+            </div>
+            <div className="card">
                 <div className="card-head"><Sparkles size={17}/><h2>AI assistant</h2></div>
                 {st is not None and st.ai_ready and <div className="small">Using <code>{st.ai_model}</code> for study plans and assignment breakdowns.</div>}
                 {(st is None or not st.ai_ready) and <div className="stack small">
@@ -106,6 +148,14 @@ def:pub SettingsPage(
                             <input className="input" value={name} placeholder="Your first name" onChange={lambda (e: ChangeEvent) { name = e.target.value; }}/>
                             <button className="btn" onClick={lambda (e: MouseEvent) { save(); }}>Save</button>
                         </div>
+                    </div>
+                    <div className="field">
+                        <label>Username (what you sign in with)</label>
+                        <div className="row-flex" style={{"flexWrap": "nowrap"}}>
+                            <input className="input" value={newUsername} placeholder={p.session.username or "username"} onChange={lambda (e: ChangeEvent) { newUsername = e.target.value; renameMsg = ""; }}/>
+                            <button className="btn" disabled={not newUsername.strip()} onClick={lambda (e: MouseEvent) { change_username(); }}>Change</button>
+                        </div>
+                        {renameMsg and <div className="tiny" style={{"color": "var(--danger)"}}>{renameMsg}</div>}
                     </div>
                     <div className="field">
                         <label>Theme</label>

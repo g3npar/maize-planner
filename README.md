@@ -10,6 +10,9 @@ every **Canvas**, **Gradescope** and **Autograder.io** deadline, your **class sc
 
 ## Features
 
+- **Google Calendar.** Paste your calendar's secret iCal address (Google Calendar → Settings → your
+  calendar → Integrate calendar) and your events show on Today and in the week view, and the study plan
+  works around them. Recurring events, skipped and moved occurrences are handled; read-only.
 - **Canvas sync.** Paste your Canvas calendar feed link and the planner imports your courses and every
   assignment with its due date and link. Where your school lets students make an access token, a token
   also brings in points, assignment-group **grade weights**, your submission status and your **grades**. Assignments that are really submitted on **Gradescope** (LTI tools) or
