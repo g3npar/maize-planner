@@ -95,3 +95,78 @@ test "assignment group weights and pagination links" {
     assert next_link("<https://x?page=1>; rel=\"first\"") == "";
     assert clean_base("https://umich.instructure.com/api/v1/") == "https://umich.instructure.com";
 }
+
+glob FEED: str = "\r\n".join(
+    [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Instructure//Canvas",
+        "BEGIN:VEVENT",
+        "DTSTAMP:20261001T120000Z",
+        "DTSTART:20261010T035900Z",
+        "DTEND:20261010T035900Z",
+        "SUMMARY:Project 2: Threads\\, locks [EECS 482 001 FA 2026]",
+        "UID:event-assignment-901",
+        "URL:https://umich.instructure.com/calendar?include_contexts=course_70123&month=10&ye",
+        " ar=2026#assignment_901",
+        "DESCRIPTION:Submit on autograder.io\\nhttps://autograder.io/web/project/42",
+        "END:VEVENT",
+        "BEGIN:VEVENT",
+        "DTSTART;VALUE=DATE:20261015",
+        "SUMMARY:Homework 4 (Gradescope) [EECS 449 001 FA 2026]",
+        "UID:event-assignment-902",
+        "URL:https://umich.instructure.com/courses/70200/assignments/902",
+        "END:VEVENT",
+        "BEGIN:VEVENT",
+        "DTSTART:20261010T035900Z",
+        "SUMMARY:Project 2: Threads\\, locks [EECS 482 001 FA 2026]",
+        "UID:event-assignment-override-55",
+        "URL:https://umich.instructure.com/calendar?include_contexts=course_70123#assignment_901",
+        "END:VEVENT",
+        "BEGIN:VEVENT",
+        "DTSTART:20261008T140000Z",
+        "SUMMARY:Office hours [EECS 482 001 FA 2026]",
+        "UID:event-calendar-event-77",
+        "URL:https://umich.instructure.com/calendar?include_contexts=course_70123#calendar_event_77",
+        "END:VEVENT",
+        "END:VCALENDAR"
+    ]
+);
+
+"""A UTC wall time as the server's local ISO time, the way the parser stores it."""
+def _local(utc: datetime) -> str {
+    return to_iso(utc.replace(tzinfo=timezone.utc).astimezone().replace(tzinfo=None));
+}
+
+test "calendar feed assignments are parsed with their course" {
+    entries = parse_feed(FEED);
+    assert len(entries) == 2;
+    (c1, a1) = entries[0];
+    assert a1.canvas_id == 901;
+    assert a1.title == "Project 2: Threads, locks";
+    assert c1.canvas_id == 70123;
+    assert c1.code == "EECS 482";
+    assert c1.name == "EECS 482 001 FA 2026";
+    assert c1.url == "https://umich.instructure.com/courses/70123";
+    assert a1.url == "https://umich.instructure.com/courses/70123/assignments/901";
+    assert a1.source == "autograder";
+    assert a1.external_url == "https://autograder.io/web/project/42";
+    assert a1.due == _local(datetime(2026, 10, 10, 3, 59));
+    (c2, a2) = entries[1];
+    assert a2.canvas_id == 902;
+    assert c2.canvas_id == 70200;
+    assert c2.code == "EECS 449";
+    assert a2.due == "2026-10-15T23:59";
+    assert a2.source == "gradescope";
+    assert a2.points == 0.0;
+}
+
+test "calendar feed links and dates" {
+    assert clean_feed_url(" webcal://umich.instructure.com/feeds/calendars/user_abc.ics ") == "https://umich.instructure.com/feeds/calendars/user_abc.ics";
+    # 23:59 EDT is 03:59 UTC the next day.
+    assert ics_due("TZID=America/Detroit", "20261010T235900") == _local(
+        datetime(2026, 10, 11, 3, 59)
+    );
+    assert ics_due("", "garbage") == "";
+    assert parse_feed("") == [];
+}

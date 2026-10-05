@@ -99,7 +99,7 @@ def:pub TodayPage(
             <div className="grid-cards">
                 <div className="stack">
                     <div className="row-flex"><Link2 size={18}/><b>Connect Canvas</b></div>
-                    <div className="muted small">Paste a Canvas access token and every course, deadline and grade is imported — Gradescope and Autograder assignments get tagged automatically.</div>
+                    <div className="muted small">Paste your Canvas calendar feed link and every course and deadline is imported — Gradescope and Autograder assignments get tagged automatically.</div>
                     <div><button className="btn primary sm" onClick={lambda (e: MouseEvent) { go("settings"); }}>Open settings</button></div>
                 </div>
                 <div className="stack">

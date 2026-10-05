@@ -12,6 +12,7 @@ def:pub SettingsPage(
     has name: str = "",
         url: str = "",
         token: str = "",
+        feed: str = "",
         loaded: bool = False;
 
     can with entry {
@@ -30,14 +31,22 @@ def:pub SettingsPage(
     server = api_base or window.location.origin;
     sync_errors: list[str] = p.syncResult.errors if p.syncResult is not None else [];
 
+    connected = st is not None and (st.has_token or st.has_feed);
+    badge = "";
+    if st is not None {
+        badge = ("Connected " + st.token_hint) if st.has_token else "Calendar feed connected";
+    }
+
     async def save -> None {
-        await p.saveSettings(name, url, token, False);
+        await p.saveSettings(name, url, token, feed, False);
         token = "";
+        feed = "";
     }
 
     async def save_and_sync -> None {
-        await p.saveSettings(name, url, token, False);
+        await p.saveSettings(name, url, token, feed, False);
         token = "";
+        feed = "";
         await p.syncCanvas();
     }
 
@@ -46,18 +55,23 @@ def:pub SettingsPage(
             <div className="card">
                 <div className="card-head"><Link2 size={17}/><h2>Canvas</h2>
                     <span className="spacer"></span>
-                    {st is not None and st.has_token and <span className="badge" style={{"--chip": "#16a34a"}}>Connected {st.token_hint}</span>}
+                    {connected and <span className="badge" style={{"--chip": "#16a34a"}}>{badge}</span>}
                 </div>
                 <div className="stack">
                     <div className="muted small">
-                        Sync imports your active courses, every assignment with its due date and points, assignment-group weights, your submission status and grades. Assignments submitted through Gradescope (LTI) or autograder.io are tagged automatically.
+                        Connect with your Canvas calendar feed (works everywhere, including UMich) or an access token if your school allows students to make them.
+                        The feed imports your courses and every assignment with its due date; a token also brings in points, assignment-group weights, submission status and grades.
+                    </div>
+                    <div className="field">
+                        <label>Calendar feed link {st is not None and st.has_feed and <span className="muted">(leave blank to keep the current one)</span>}</label>
+                        <input className="input" type="password" value={feed} placeholder="Canvas → Calendar → Calendar Feed (bottom right) → copy the link" onChange={lambda (e: ChangeEvent) { feed = e.target.value; }}/>
                     </div>
                     <div className="field">
                         <label>Canvas URL</label>
                         <input className="input" value={url} placeholder="https://umich.instructure.com" onChange={lambda (e: ChangeEvent) { url = e.target.value; }}/>
                     </div>
                     <div className="field">
-                        <label>Access token {st is not None and st.has_token and <span className="muted">(leave blank to keep the current one)</span>}</label>
+                        <label>Access token <span className="muted">{"(leave blank to keep the current one)" if st is not None and st.has_token else "(optional, used instead of the feed)"}</span></label>
                         <input className="input" type="password" value={token} placeholder="Canvas → Account → Settings → + New Access Token" onChange={lambda (e: ChangeEvent) { token = e.target.value; }}/>
                     </div>
                     <div className="row-flex">
@@ -65,7 +79,7 @@ def:pub SettingsPage(
                             <RefreshCw size={15} className={"spin" if p.syncBusy else ""}/>{"Syncing…" if p.syncBusy else "Save & sync now"}
                         </button>
                         <button className="btn" onClick={lambda (e: MouseEvent) { save(); }}>Save</button>
-                        {st is not None and st.has_token and <button className="btn danger" onClick={lambda (e: MouseEvent) { p.saveSettings(name, url, "", True); }}>Disconnect</button>}
+                        {connected and <button className="btn danger" onClick={lambda (e: MouseEvent) { p.saveSettings(name, url, "", "", True); }}>Disconnect</button>}
                     </div>
                     {st is not None and st.last_sync and <div className="callout small">
                         <b>Last sync {st.last_sync.replace("T", " ")}</b> · {st.last_sync_summary}

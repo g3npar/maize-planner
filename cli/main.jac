@@ -280,7 +280,7 @@ async def cmd_whoami(cfg: CliConfig) -> int {
     st: SettingsView | None = first(res.reports);
     if st is not None {
         print("status  " + hex_fg("connected", "#22c55e"));
-        print("canvas  " + (("connected " + st.token_hint + (", last sync " + st.last_sync.replace("T", " ") if st.last_sync else "")) if st.has_token else dim("not connected")));
+        print("canvas  " + (("connected " + (st.token_hint if st.has_token else "(calendar feed)") + (", last sync " + st.last_sync.replace("T", " ") if st.last_sync else "")) if st.has_token or st.has_feed else dim("not connected")));
         print("ai      " + (st.ai_model if st.ai_ready else dim("built-in planner (no API key on server)")));
     }
     return EXIT_OK;

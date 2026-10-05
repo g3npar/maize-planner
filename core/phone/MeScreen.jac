@@ -12,7 +12,7 @@ def:pub MeScreen(p: Planner) -> JsxElement {
         }
     }
     st = p.settings;
-    connected = st is not None and st.has_token;
+    connected = st is not None and (st.has_token or st.has_feed);
 
     <ScrollView contentContainerStyle={styles.scroll}>
         <View style={[styles.card, {"flexDirection": "row", "alignItems": "center", "gap": 12}]}>
@@ -27,7 +27,7 @@ def:pub MeScreen(p: Planner) -> JsxElement {
         <View style={styles.card}>
             <Text style={styles.h2}>Canvas</Text>
             <Text style={styles.sub}>
-                {("Connected " + st.token_hint + (" · last sync " + st.last_sync.replace("T", " ") if st.last_sync else "")) if connected and st is not None else "Not connected - add your Canvas token in the web app's Settings."}
+                {("Connected " + (st.token_hint if st.has_token else "(calendar feed)") + (" · last sync " + st.last_sync.replace("T", " ") if st.last_sync else "")) if connected and st is not None else "Not connected - add your Canvas calendar feed in the web app's Settings."}
             </Text>
             {(<Pressable style={styles.button} disabled={p.syncBusy} onPress={lambda { p.syncCanvas(); }}>
                 {(<ActivityIndicator color={C.white}/>) if p.syncBusy else (<Icon name="refresh" size={16} color={C.white}/>)}

@@ -10,9 +10,9 @@ every **Canvas**, **Gradescope** and **Autograder.io** deadline, your **class sc
 
 ## Features
 
-- **Canvas sync.** Paste   a Canvas access token and the planner imports your active courses, every
-  assignment (due date, points, link), assignment-group **grade weights**, your submission status and
-  your **grades**. Assignments that are really submitted on **Gradescope** (LTI tools) or
+- **Canvas sync.** Paste your Canvas calendar feed link and the planner imports your courses and every
+  assignment with its due date and link. Where your school lets students make an access token, a token
+  also brings in points, assignment-group **grade weights**, your submission status and your **grades**. Assignments that are really submitted on **Gradescope** (LTI tools) or
   **autograder.io** (linked in the description) are detected and tagged. Re-syncing updates items
   in place and never duplicates them.
 - **Natural-language quick add**, on every client:
@@ -59,8 +59,10 @@ jac run
 ```
 
 Open **http://localhost:8000**, create an account, then either click **Load demo semester** or go to
-**Settings → Canvas** and paste an access token (Canvas → Account → Settings → **+ New Access Token**;
-the URL defaults to `https://umich.instructure.com`) and hit **Save & sync now**.
+**Settings → Canvas** and paste your calendar feed link (Canvas → **Calendar** → **Calendar Feed** at the
+bottom right; UMich doesn't let students create access tokens, so this is the way in there) and hit
+**Save & sync now**. If your school does allow tokens, paste one (Canvas → Account → Settings →
+**+ New Access Token**) for grades and weights too.
 
 The first run takes a minute or two while Jac installs packages and compiles. If port 8000 is
 busy, Jac picks the next free one and prints it. (`jac run --port 8080` also works.)
@@ -124,7 +126,7 @@ planner show 3fa2 / step 3fa2 2 / breakdown 3fa2 / score 3fa2 18 --of 20 / open 
 planner week [--next 1]               # schedule + deadlines
 planner courses / grades              # classes, weighted grades, needed average
 planner plan --hours 3 --goal "midterm prep"
-planner sync                          # Canvas import (token is set once in the web Settings page)
+planner sync                          # Canvas import (feed or token is set once in the web Settings page)
 planner ics -o planner.ics            # calendar export
 planner demo / whoami / logout
 ```

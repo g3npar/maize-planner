@@ -35,7 +35,7 @@ import core.logic as lg;
 import core.canvas as cv;
 import core.advisor as adv;
 import from core.logic { GradeInput, DAY_SHORT, SOURCES, STATUSES }
-import from core.canvas { CanvasError, CanvasAssignment }
+import from core.canvas { CanvasError, CanvasAssignment, CanvasCourse }
 import from core.advisor { TaskBrief, Busy }
 
 glob PALETTE: list[str] = [
@@ -63,6 +63,7 @@ node Profile {
     has display_name: str = "",
         canvas_url: str = "https://umich.instructure.com",
         canvas_token: str = "",
+        canvas_feed_url: str = "",
         last_sync: str = "",
         last_sync_summary: str = "";
 }
@@ -441,7 +442,7 @@ walker get_dashboard {
             week=[v for v in views if v.urgency == "week"],
             classes_today=_slots_on(now, now),
             course_count=len([root -->[?:Course]]),
-            canvas_connected=bool(prof.canvas_token),
+            canvas_connected=bool(prof.canvas_token or prof.canvas_feed_url),
             last_sync=prof.last_sync
         );
         upcoming = [s for s in dash.classes_today if s.state != "past"];
@@ -918,6 +919,7 @@ def _settings_view(p: Profile) -> SettingsView {
         canvas_url=p.canvas_url,
         has_token=bool(token),
         token_hint=("…" + token[-4:]) if len(token) >= 8 else "",
+        has_feed=bool(p.canvas_feed_url),
         last_sync=p.last_sync,
         last_sync_summary=p.last_sync_summary,
         ai_ready=bool(adv.ai_model_name()),
@@ -937,6 +939,7 @@ walker save_settings {
     has display_name: str = "",
         canvas_url: str = "",
         canvas_token: str = "",
+        canvas_feed_url: str = "",
         clear_token: bool = False,
         reports: list[SettingsView] = [];
 
@@ -946,10 +949,17 @@ walker save_settings {
         if self.canvas_url.strip() {
             p.canvas_url = cv.clean_base(self.canvas_url);
         }
+        # clear_token disconnects Canvas entirely: token and calendar feed.
         if self.clear_token {
             p.canvas_token = "";
-        } elif self.canvas_token.strip() {
-            p.canvas_token = self.canvas_token.strip();
+            p.canvas_feed_url = "";
+        } else {
+            if self.canvas_token.strip() {
+                p.canvas_token = self.canvas_token.strip();
+            }
+            if self.canvas_feed_url.strip() {
+                p.canvas_feed_url = cv.clean_feed_url(self.canvas_feed_url);
+            }
         }
         report _settings_view(p);
     }
@@ -957,8 +967,14 @@ walker save_settings {
 
 # ========================================================= canvas sync ====
 
+"""Create or update the assignment for a Canvas item. A calendar-feed item
+carries no points, so `keep_points` leaves the stored points alone."""
 def _apply_canvas_item(
-    course: Course, item: CanvasAssignment, now: datetime, result: SyncResult
+    course: Course,
+    item: CanvasAssignment,
+    now: datetime,
+    result: SyncResult,
+    keep_points: bool = False
 ) {
     existing: Assignment | None = None;
     for a in [course -->[?:Assignment]] {
@@ -994,10 +1010,11 @@ def _apply_canvas_item(
         return;
     }
     changed = False;
-    if existing.title != item.title or existing.due != item.due or existing.points != item.points {
+    points = existing.points if keep_points else item.points;
+    if existing.title != item.title or existing.due != item.due or existing.points != points {
         existing.title = item.title;
         existing.due = item.due;
-        existing.points = item.points;
+        existing.points = points;
         changed = True;
     }
     if item.category and existing.category != item.category {
@@ -1020,6 +1037,72 @@ def _apply_canvas_item(
     }
 }
 
+"""The planner course for a Canvas course: linked by Canvas id, else matched
+by code, else created."""
+def _link_canvas_course(rc: CanvasCourse, now: datetime, result: SyncResult) -> Course {
+    course: Course | None = None;
+    if rc.canvas_id {
+        for c in [root -->[?:Course]] {
+            if c.canvas_id == rc.canvas_id {
+                course = c;
+            }
+        }
+    }
+    if course is None {
+        course = _course_by_ref(rc.code);
+        if course is not None {
+            result.courses_matched += 1;
+        }
+    }
+    if course is None {
+        course = Course(
+            code=rc.code,
+            name=rc.name,
+            color=_next_color(),
+            term=rc.term,
+            created=lg.to_iso(now)
+        );
+        root ++> course;
+        result.courses_added += 1;
+    }
+    if rc.canvas_id {
+        course.canvas_id = rc.canvas_id;
+    }
+    if rc.url {
+        course.canvas_url = rc.url;
+    }
+    if not course.name {
+        course.name = rc.name;
+    }
+    if not course.term {
+        course.term = rc.term;
+    }
+    return course;
+}
+
+"""Sync from the private calendar feed, for schools without student tokens."""
+def _sync_feed(prof: Profile, now: datetime, result: SyncResult) {
+    try {
+        entries = cv.fetch_feed(prof.canvas_feed_url);
+    } except CanvasError as e {
+        result.message = e.message;
+        return;
+    }
+    courses: dict[str, Course] = {};
+    for (rc, item) in entries {
+        key = str(rc.canvas_id) if rc.canvas_id else rc.code;
+        if key not in courses {
+            courses[key] = _link_canvas_course(rc, now, result);
+        }
+        _apply_canvas_item(courses[key], item, now, result, keep_points=True);
+    }
+    result.ok = True;
+    result.message = (
+        f"Synced {len(courses)} courses from the calendar feed: {result.assignments_added} new, "
+        + f"{result.assignments_updated} updated."
+    );
+}
+
 walker sync_canvas {
     has reports: list[SyncResult] = [];
 
@@ -1027,8 +1110,17 @@ walker sync_canvas {
         prof = _profile();
         result = SyncResult();
         now = lg.now_local();
+        if not prof.canvas_token and not prof.canvas_feed_url {
+            result.message = "Add a Canvas calendar feed or access token in Settings first.";
+            report result;
+            return;
+        }
         if not prof.canvas_token {
-            result.message = "Add a Canvas access token in Settings first.";
+            _sync_feed(prof, now, result);
+            if result.ok {
+                prof.last_sync = lg.to_iso(now);
+                prof.last_sync_summary = result.message;
+            }
             report result;
             return;
         }
@@ -1040,37 +1132,7 @@ walker sync_canvas {
             return;
         }
         for rc in remote {
-            course: Course | None = None;
-            for c in [root -->[?:Course]] {
-                if c.canvas_id == rc.canvas_id {
-                    course = c;
-                }
-            }
-            if course is None {
-                course = _course_by_ref(rc.code);
-                if course is not None {
-                    result.courses_matched += 1;
-                }
-            }
-            if course is None {
-                course = Course(
-                    code=rc.code,
-                    name=rc.name,
-                    color=_next_color(),
-                    term=rc.term,
-                    created=lg.to_iso(now)
-                );
-                root ++> course;
-                result.courses_added += 1;
-            }
-            course.canvas_id = rc.canvas_id;
-            course.canvas_url = rc.url;
-            if not course.name {
-                course.name = rc.name;
-            }
-            if not course.term {
-                course.term = rc.term;
-            }
+            course = _link_canvas_course(rc, now, result);
             try {
                 (items, weights) = cv.fetch_course_work(
                     prof.canvas_url, prof.canvas_token, rc.canvas_id

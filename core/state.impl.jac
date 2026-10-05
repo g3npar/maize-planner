@@ -309,10 +309,16 @@ impl usePlanner.deleteMeeting(id: str) -> None {
     }
 }
 
-impl usePlanner.saveSettings(name: str, url: str, token: str, clear: bool) -> None {
+impl usePlanner.saveSettings(
+    name: str, url: str, token: str, feed: str, clear: bool
+) -> None {
     try {
         res = root spawn save_settings(
-            display_name=name, canvas_url=url, canvas_token=token, clear_token=clear
+            display_name=name,
+            canvas_url=url,
+            canvas_token=token,
+            canvas_feed_url=feed,
+            clear_token=clear
         );
         settings = res.reports[0] if res.reports else settings;
         notice = "Settings saved.";

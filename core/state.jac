@@ -270,7 +270,7 @@ obj Planner {
         deleteCourse: Callable[[str], None],
         addMeeting: Callable[[str, str, list[int], str, str, str], None],
         deleteMeeting: Callable[[str], None],
-        saveSettings: Callable[[str, str, str, bool], None],
+        saveSettings: Callable[[str, str, str, str, bool], None],
         syncCanvas: Callable[[], None],
         makePlan: Callable[[float, str, bool], None],
         loadDemo: Callable[[], None],
@@ -361,7 +361,7 @@ def:pub usePlanner -> Planner {
         course_id: str, kind: str, days: list[int], start: str, end: str, location: str
     ) -> None;
     async def deleteMeeting(id: str) -> None;
-    async def saveSettings(name: str, url: str, token: str, clear: bool) -> None;
+    async def saveSettings(name: str, url: str, token: str, feed: str, clear: bool) -> None;
     async def syncCanvas -> None;
     async def makePlan(hours: float, goal: str, useAi: bool) -> None;
     async def loadDemo -> None;

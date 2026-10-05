@@ -17,6 +17,10 @@ FROM jaseci/jaclang:0.37.21
 
 WORKDIR /app
 
+# Due dates and "today" use the server's local time. Michigan time, written as
+# a POSIX rule so it works even if the image has no time zone database.
+ENV TZ=EST5EDT,M3.2.0,M11.1.0
+
 # The image ships its bundled bun without the execute bit, and as root, so the
 # non-root `jac` user can't run (or fix) it.
 USER root

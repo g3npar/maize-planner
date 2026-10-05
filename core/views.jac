@@ -149,6 +149,7 @@ obj SettingsView {
         canvas_url: str = "",
         has_token: bool = False,
         token_hint: str = "",
+        has_feed: bool = False,
         last_sync: str = "",
         last_sync_summary: str = "",
         ai_ready: bool = False,

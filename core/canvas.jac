@@ -6,10 +6,16 @@ tools and Autograder projects are linked from the description, so the parser
 tags each assignment with its real destination. The network half is a thin
 urllib client with Link-header pagination; the parsing half is pure and
 covered by `canvas.test.jac` against recorded API payloads.
+
+Schools that don't let students create access tokens (UMich) still give each
+student a private calendar feed (Canvas → Calendar → Calendar Feed). The feed
+half parses that .ics: every assignment with its course and due date, but no
+points, grades or groups.
 """
 
 import json;
 import re;
+import from datetime { datetime, timezone }
 import urllib.request;
 import urllib.error;
 import urllib.parse;
@@ -45,7 +51,12 @@ obj CanvasError(Exception) {
 glob COURSE_CODE_RE: re.Pattern[str] = re.compile(r"\b([A-Z]{2,8})\s*[-_ ]?\s*(\d{3}[A-Z]?)\b"),
      GRADESCOPE_RE: re.Pattern[str] = re.compile(r"gradescope", re.IGNORECASE),
      AUTOGRADER_RE: re.Pattern[str] = re.compile(r"autograder(\.io)?", re.IGNORECASE),
-     TAG_RE: re.Pattern[str] = re.compile(r"<[^>]+>");
+     TAG_RE: re.Pattern[str] = re.compile(r"<[^>]+>"),
+     FEED_SUMMARY_RE: re.Pattern[str] = re.compile(r"^(.*?)\s*\[([^\[\]]+)\]\s*$"),
+     FEED_ASSIGNMENT_RE: re.Pattern[str] = re.compile(r"(?:assignment_|/assignments/)(\d+)"),
+     FEED_UID_RE: re.Pattern[str] = re.compile(r"^event-assignment-(\d+)$"),
+     FEED_COURSE_RE: re.Pattern[str] = re.compile(r"(?:course_|/courses/)(\d+)"),
+     FEED_BASE_RE: re.Pattern[str] = re.compile(r"^(https?://[^/]+)");
 
 # --------------------------------------------------------------- parsing ----
 
@@ -182,6 +193,144 @@ def next_link(link_header: str) -> str {
     return "";
 }
 
+# ---------------------------------------------------------- calendar feed ----
+
+def clean_feed_url(url: str) -> str {
+    feed = (url or "").strip();
+    if feed.startswith("webcal://") {
+        feed = "https://" + feed[9:];
+    }
+    return feed;
+}
+
+def _ics_unescape(text: str) -> str {
+    out: list[str] = [];
+    i = 0;
+    while i < len(text) {
+        ch = text[i];
+        if ch == "\\" and i + 1 < len(text) {
+            nxt = text[i + 1];
+            out.append("\n" if nxt in "nN" else nxt);
+            i += 2;
+            continue;
+        }
+        out.append(ch);
+        i += 1;
+    }
+    return "".join(out);
+}
+
+"""Split an .ics into its VEVENTs, each as {NAME: (params, value)}."""
+def ics_events(text: str) -> list[dict[str, tuple[str, str]]] {
+    lines: list[str] = [];
+    for raw in (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n") {
+        if raw[:1] in [" ", "\t"] and lines {
+            lines[-1] = lines[-1] + raw[1:];
+        } else {
+            lines.append(raw);
+        }
+    }
+    events: list[dict[str, tuple[str, str]]] = [];
+    current: dict[str, tuple[str, str]] | None = None;
+    for line in lines {
+        if line == "BEGIN:VEVENT" {
+            current = {};
+        } elif line == "END:VEVENT" {
+            if current is not None {
+                events.append(current);
+            }
+            current = None;
+        } elif current is not None and ":" in line {
+            (head, value) = line.split(":", 1);
+            (name, _, params) = head.partition(";");
+            current[name.upper()] = (params, value);
+        }
+    }
+    return events;
+}
+
+"""An .ics DTSTART/DUE value as a local ISO time; date-only means 23:59."""
+def ics_due(params: str, value: str) -> str {
+    raw = value.strip();
+    try {
+        if ("VALUE=DATE" in params.upper() and "DATE-TIME" not in params.upper()) or len(raw) == 8 {
+            day = datetime.strptime(raw[:8], "%Y%m%d");
+            return to_iso(day.replace(hour=23, minute=59));
+        }
+        if raw.endswith("Z") {
+            d = datetime.strptime(raw[:-1], "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc);
+            return to_iso(d.astimezone().replace(tzinfo=None));
+        }
+        d = datetime.strptime(raw[:15], "%Y%m%dT%H%M%S");
+        tzid = re.search(r"TZID=([^;]+)", params, re.IGNORECASE);
+        if tzid is not None {
+            import from zoneinfo { ZoneInfo }
+            try {
+                d = d.replace(tzinfo=ZoneInfo(tzid.group(1).strip('"')));
+                return to_iso(d.astimezone().replace(tzinfo=None));
+            } except Exception {}
+        }
+        return to_iso(d);
+    } except ValueError {
+        return "";
+    }
+}
+
+"""Assignments in a Canvas calendar feed, each with the course it belongs to.
+
+Canvas titles assignment events "Name [Course]" and links them to
+/courses/<id>/assignments/<id> (or calendar?include_contexts=course_<id>
+...#assignment_<id>). Plain calendar events (lectures, office hours) are
+skipped, and an assignment listed twice (section overrides) is kept once.
+"""
+def parse_feed(text: str) -> list[tuple[CanvasCourse, CanvasAssignment]] {
+    out: list[tuple[CanvasCourse, CanvasAssignment]] = [];
+    seen: set[int] = set();
+    for ev in ics_events(text) {
+        uid = _ics_unescape(ev.get("UID", ("", ""))[1]).strip();
+        url = _ics_unescape(ev.get("URL", ("", ""))[1]).strip();
+        m = FEED_ASSIGNMENT_RE.search(url);
+        if m is None {
+            m = FEED_UID_RE.search(uid);
+        }
+        if m is None {
+            continue;
+        }
+        aid = int(m.group(1));
+        if aid in seen {
+            continue;
+        }
+        seen.add(aid);
+        summary = _ics_unescape(ev.get("SUMMARY", ("", ""))[1]).strip();
+        sm = FEED_SUMMARY_RE.match(summary);
+        title = (sm.group(1) if sm is not None else summary).strip() or "Untitled";
+        label = sm.group(2).strip() if sm is not None else "";
+        cm = FEED_COURSE_RE.search(url);
+        cid = int(cm.group(1)) if cm is not None else 0;
+        bm = FEED_BASE_RE.match(url);
+        base = bm.group(1) if bm is not None else "";
+        (params, value) = ev.get("DTSTART", ev.get("DUE", ("", "")));
+        description = _ics_unescape(ev.get("DESCRIPTION", ("", ""))[1]);
+        (source, external) = detect_source({"name": title, "description": description});
+        course = CanvasCourse(
+            canvas_id=cid,
+            code=short_code(label, label) if label else "Canvas",
+            name=label,
+            url=f"{base}/courses/{cid}" if base and cid else ""
+        );
+        item = CanvasAssignment(
+            canvas_id=aid,
+            title=title,
+            due=ics_due(params, value),
+            url=f"{base}/courses/{cid}/assignments/{aid}" if base and cid else url,
+            source=source,
+            external_url=external
+        );
+        out.append((course, item));
+    }
+    return out;
+}
+
 # --------------------------------------------------------------- network ----
 
 def _get(url: str, token: str) -> tuple[any, str] {
@@ -273,4 +422,39 @@ def fetch_course_work(
         }
     }
     return (items, weights);
+}
+
+def fetch_feed(feed_url: str) -> list[tuple[CanvasCourse, CanvasAssignment]] {
+    url = clean_feed_url(feed_url);
+    if not url.startswith("https://") and not url.startswith("http://") {
+        raise CanvasError(
+            message="That doesn't look like a calendar feed link. Copy it from Canvas → Calendar → Calendar Feed."
+        );
+    }
+    req = urllib.request.Request(
+        url, headers={"Accept": "text/calendar", "User-Agent": "jac-personal-planner/0.1"}
+    );
+    try {
+        with urllib.request.urlopen(req, timeout=25) as resp {
+            body = resp.read().decode("utf-8", errors="replace");
+        }
+    } except urllib.error.HTTPError as e {
+        if e.code in [401, 403, 404] {
+            raise CanvasError(
+                message=f"Canvas didn't recognize that calendar feed ({e.code}). Copy the link again from Calendar → Calendar Feed.",
+                status=e.code
+            );
+        }
+        raise CanvasError(message=f"Canvas returned HTTP {e.code} for the calendar feed", status=e.code);
+    } except urllib.error.URLError as e {
+        raise CanvasError(message=f"Could not reach Canvas: {str(e.reason)}");
+    } except TimeoutError {
+        raise CanvasError(message="Canvas did not answer within 25 seconds");
+    }
+    if "BEGIN:VCALENDAR" not in body[:2000] {
+        raise CanvasError(
+            message="That link isn't a calendar feed. Copy it from Canvas → Calendar → Calendar Feed."
+        );
+    }
+    return parse_feed(body);
 }
