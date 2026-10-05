@@ -72,3 +72,11 @@ temperature = 0.3
 # reachable on the hosted server, and the planner doesn't use the admin portal.
 [scale.admin]
 enabled = false
+
+# The GitHub Pages UI calls the server cross-origin, and every walker call
+# carries an X-Jac-Endpoint header that Jac's CORS preflight doesn't list
+# (it hard-codes Content-Type, Authorization, X-Request-Id), so browsers
+# block the call. Custom response headers are applied after the CORS
+# middleware, so this widens the preflight's allowed headers.
+[environments.response.headers]
+"Access-Control-Allow-Headers" = "Content-Type, Authorization, X-Request-Id, X-Jac-Endpoint"
