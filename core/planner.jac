@@ -29,7 +29,8 @@ import from core.views {
     SettingsView,
     SyncResult,
     StudyPlan,
-    GradeSummary
+    GradeSummary,
+    Snapshot
 }
 import core.logic as lg;
 import core.canvas as cv;
@@ -423,68 +424,138 @@ def _attach(a: Assignment, course: Course | None) {
 
 # ============================================================ dashboard ====
 
+def _dashboard -> Dashboard {
+    now = lg.now_local();
+    prof = _profile();
+    views = _open_views(now);
+    today_d = lg.start_of_day(now);
+    week_end = today_d + timedelta(days=7);
+    dash = Dashboard(
+        greeting=lg.greeting(now, prof.display_name),
+        date_label=now.strftime("%A, %B ") + str(now.day),
+        now=lg.to_iso(now),
+        overdue=[v for v in views if v.urgency == "overdue"],
+        today=[v for v in views if v.urgency == "today"],
+        tomorrow=[v for v in views if v.urgency == "tomorrow"],
+        week=[v for v in views if v.urgency == "week"],
+        classes_today=_slots_on(now, now),
+        course_count=len([root -->[?:Course]]),
+        canvas_connected=bool(prof.canvas_token or prof.canvas_feed_url),
+        last_sync=prof.last_sync
+    );
+    upcoming = [s for s in dash.classes_today if s.state != "past"];
+    if upcoming {
+        dash.next_class = upcoming[0];
+    } else {
+        for offset in range(1, 8) {
+            later = _slots_on(today_d + timedelta(days=offset), now);
+            if later {
+                first = later[0];
+                first.state = DAY_SHORT[first.day];
+                dash.next_class = first;
+                break;
+            }
+        }
+    }
+    done_week = 0;
+    hours = 0.0;
+    week_start = lg.start_of_week(now);
+    for (a, _) in _all_assignments() {
+        if a.status == "done" {
+            finished = lg.parse_iso(a.completed);
+            if finished is not None and finished >= week_start {
+                done_week += 1;
+            }
+        } else {
+            d = lg.parse_iso(a.due);
+            if d is not None and d < week_end {
+                hours += a.est_hours;
+            }
+        }
+    }
+    dash.stats = Stats(
+        open=len(views),
+        overdue=len(dash.overdue),
+        due_today=len(dash.today),
+        due_week=len(dash.today) + len(dash.tomorrow) + len(dash.week),
+        done_week=done_week,
+        hours_week=round(hours, 1)
+    );
+    return dash;
+}
+
 walker get_dashboard {
     has reports: list[Dashboard] = [];
 
     can build with Root entry {
-        now = lg.now_local();
-        prof = _profile();
-        views = _open_views(now);
-        today_d = lg.start_of_day(now);
-        week_end = today_d + timedelta(days=7);
-        dash = Dashboard(
-            greeting=lg.greeting(now, prof.display_name),
-            date_label=now.strftime("%A, %B ") + str(now.day),
-            now=lg.to_iso(now),
-            overdue=[v for v in views if v.urgency == "overdue"],
-            today=[v for v in views if v.urgency == "today"],
-            tomorrow=[v for v in views if v.urgency == "tomorrow"],
-            week=[v for v in views if v.urgency == "week"],
-            classes_today=_slots_on(now, now),
-            course_count=len([root -->[?:Course]]),
-            canvas_connected=bool(prof.canvas_token or prof.canvas_feed_url),
-            last_sync=prof.last_sync
-        );
-        upcoming = [s for s in dash.classes_today if s.state != "past"];
-        if upcoming {
-            dash.next_class = upcoming[0];
-        } else {
-            for offset in range(1, 8) {
-                later = _slots_on(today_d + timedelta(days=offset), now);
-                if later {
-                    first = later[0];
-                    first.state = DAY_SHORT[first.day];
-                    dash.next_class = first;
-                    break;
-                }
-            }
-        }
-        done_week = 0;
-        hours = 0.0;
-        week_start = lg.start_of_week(now);
-        for (a, _) in _all_assignments() {
-            if a.status == "done" {
-                finished = lg.parse_iso(a.completed);
-                if finished is not None and finished >= week_start {
-                    done_week += 1;
-                }
-            } else {
-                d = lg.parse_iso(a.due);
-                if d is not None and d < week_end {
-                    hours += a.est_hours;
-                }
-            }
-        }
-        dash.stats = Stats(
-            open=len(views),
-            overdue=len(dash.overdue),
-            due_today=len(dash.today),
-            due_week=len(dash.today) + len(dash.tomorrow) + len(dash.week),
-            done_week=done_week,
-            hours_week=round(hours, 1)
-        );
-        report dash;
+        report _dashboard();
     }
+}
+
+"""Dashboard, courses, the filtered assignment list and, when asked, the week
+and gradebook, in one round trip. The UI used to make these calls one after
+another, and each costs a full trip to the hosted server."""
+walker load_all {
+    has course: str = "",
+        source: str = "",
+        status: str = "open",
+        week_offset: int = 0,
+        with_week: bool = False,
+        with_gradebook: bool = False,
+        reports: list[Snapshot] = [];
+
+    can build with Root entry {
+        # Plain function calls, not nested spawns: a nested walker's reports
+        # would be added to this response too.
+        now = lg.now_local();
+        snap = Snapshot(
+            dashboard=_dashboard(),
+            courses=[_course_view(c, now) for c in _courses()],
+            assignments=_assignment_list(self.course, self.status, self.source, "", now)
+        );
+        if self.with_week {
+            snap.week = _week(self.week_offset);
+        }
+        if self.with_gradebook {
+            snap.gradebook = _assignment_list("", "all", "", "", now);
+        }
+        report snap;
+    }
+}
+
+def _week(offset: int) -> WeekView {
+    now = lg.now_local();
+    start = lg.start_of_week(now) + timedelta(days=7 * offset);
+    views = [_assignment_view(a, c, now) for (a, c) in _all_assignments()];
+    by_day: dict[str, list[AssignmentView]] = {};
+    for v in views {
+        if v.due_date {
+            by_day.setdefault(v.due_date, []).append(v);
+        }
+    }
+    days: list[DayColumn] = [];
+    for i in range(7) {
+        day = start + timedelta(days=i);
+        key = day.strftime("%Y-%m-%d");
+        days.append(
+            DayColumn(
+                date=key,
+                label=day.strftime("%b ") + str(day.day),
+                weekday=DAY_SHORT[i],
+                is_today=key == now.strftime("%Y-%m-%d"),
+                classes=_slots_on(day, now),
+                due=sorted(by_day.get(key, []), key=_sort_key)
+            )
+        );
+    }
+    end = start + timedelta(days=6);
+    return WeekView(
+        start=start.strftime("%Y-%m-%d"),
+        label=start.strftime("%b ") + str(start.day) + " – " + end.strftime(
+            "%b "
+        ) + str(end.day),
+        days=days
+    );
 }
 
 walker get_week {
@@ -492,38 +563,7 @@ walker get_week {
         reports: list[WeekView] = [];
 
     can build with Root entry {
-        now = lg.now_local();
-        start = lg.start_of_week(now) + timedelta(days=7 * self.offset);
-        views = [_assignment_view(a, c, now) for (a, c) in _all_assignments()];
-        by_day: dict[str, list[AssignmentView]] = {};
-        for v in views {
-            if v.due_date {
-                by_day.setdefault(v.due_date, []).append(v);
-            }
-        }
-        days: list[DayColumn] = [];
-        for i in range(7) {
-            day = start + timedelta(days=i);
-            key = day.strftime("%Y-%m-%d");
-            days.append(
-                DayColumn(
-                    date=key,
-                    label=day.strftime("%b ") + str(day.day),
-                    weekday=DAY_SHORT[i],
-                    is_today=key == now.strftime("%Y-%m-%d"),
-                    classes=_slots_on(day, now),
-                    due=sorted(by_day.get(key, []), key=_sort_key)
-                )
-            );
-        }
-        end = start + timedelta(days=6);
-        report WeekView(
-            start=start.strftime("%Y-%m-%d"),
-            label=start.strftime("%b ") + str(start.day) + " – " + end.strftime(
-                "%b "
-            ) + str(end.day),
-            days=days
-        );
+        report _week(self.offset);
     }
 }
 
@@ -661,6 +701,45 @@ walker delete_meeting {
 
 # ========================================================== assignments ====
 
+"""Does an assignment pass the list filters (status "open" = not done)?"""
+def _matches(a: Assignment, status: str, source: str, search: str) -> bool {
+    if status == "open" and a.status == "done" {
+        return False;
+    }
+    if status in ["todo", "doing", "done"] and a.status != status {
+        return False;
+    }
+    if source and a.source != _clean_source(source) {
+        return False;
+    }
+    if search and search.lower() not in (a.title + " " + a.notes + " " + a.category).lower() {
+        return False;
+    }
+    return True;
+}
+
+"""The `list_assignments` result as a function, for `load_all`."""
+def _assignment_list(
+    course: str, status: str, source: str, search: str, now: datetime
+) -> list[AssignmentView] {
+    pairs: list[tuple[Assignment, Course | None]] = [];
+    if course {
+        target = _course_by_ref(course);
+        if target is None {
+            return [];
+        }
+        pairs = [(a, target) for a in [target -->[?:Assignment]]];
+    } else {
+        pairs = _all_assignments();
+    }
+    found = [
+        _assignment_view(a, c, now)
+        for (a, c) in pairs
+        if _matches(a, status, source, search)
+    ];
+    return sorted(found, key=_sort_key);
+}
+
 walker list_assignments {
     """Walk root -> courses -> assignments, filtering as it goes."""
     has course: str = "",
@@ -691,21 +770,9 @@ walker list_assignments {
     }
 
     can collect with Assignment entry {
-        if self.status == "open" and here.status == "done" {
-            return;
+        if _matches(here, self.status, self.source, self.search) {
+            self.found.append(_assignment_view(here, _course_of(here), lg.now_local()));
         }
-        if self.status in ["todo", "doing", "done"] and here.status != self.status {
-            return;
-        }
-        if self.source and here.source != _clean_source(self.source) {
-            return;
-        }
-        if self.search and self.search.lower() not in (
-            here.title + " " + here.notes + " " + here.category
-        ).lower() {
-            return;
-        }
-        self.found.append(_assignment_view(here, _course_of(here), lg.now_local()));
     }
 
     can finish with Root exit {

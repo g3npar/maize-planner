@@ -6,8 +6,13 @@
 # Set PG_TLS_PROXY=0 to connect directly (a database that accepts plain TCP).
 set -e
 
+PY=$(ls /opt/jac/state/rt/*/python/bin/python3* | head -n 1)
+
+# Let Jac reuse the compile from the image build instead of recompiling at
+# boot, which needs more memory than Render's free 512 MB.
+"$PY" /app/deploy/restore_mtimes.py /app || true
+
 if [ -n "$JAC_DB_URL" ] && [ "${PG_TLS_PROXY:-1}" != "0" ]; then
-    PY=$(ls /opt/jac/state/rt/*/python/bin/python3* | head -n 1)
     PROXY=/app/deploy/pg_tls_proxy.py
     "$PY" "$PROXY" serve "$JAC_DB_URL" &
     JAC_DB_URL=$("$PY" "$PROXY" local-url "$JAC_DB_URL")

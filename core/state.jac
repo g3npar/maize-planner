@@ -16,6 +16,8 @@ import from core.planner {
     quick_add,
     set_status,
     set_status_many,
+    load_all,
+    Snapshot,
     set_score,
     delete_assignment,
     set_subtasks,
@@ -144,6 +146,32 @@ obj Session {
         logout: Callable[[], None];
 }
 
+glob CACHE_PREFIX: str = "planner_snapshot_v1:";
+
+"""The last Snapshot this browser loaded for `user`, shown instantly on the
+next visit while a fresh one loads. Missing or unreadable means None."""
+def:pub read_cached_snapshot(user: str) -> Snapshot | None {
+    raw = __getLocalStorage(CACHE_PREFIX + (user or "").strip());
+    if not raw {
+        return None;
+    }
+    try {
+        parsed: any = JSON.parse(raw);
+        return parsed;
+    } except Exception {
+        return None;
+    }
+}
+
+def:pub write_cached_snapshot(user: str, snap: Snapshot) -> None {
+    if not (user or "").strip() {
+        return;
+    }
+    try {
+        __setLocalStorage(CACHE_PREFIX + user.strip(), JSON.stringify(snap));
+    } except Exception {}
+}
+
 def:pub stored_username -> str {
     return __getLocalStorage("planner_username") or "";
 }
@@ -205,6 +233,7 @@ def:pub useSession -> Session {
 
     def logout {
         jacLogout();
+        __removeLocalStorage(CACHE_PREFIX + username.strip());
         __removeLocalStorage("planner_username");
         loggedIn = False;
         password = "";
@@ -352,6 +381,7 @@ def:pub usePlanner -> Planner {
         instanceId: str = str(Math.random());
 
     async def refresh -> None;
+    def applySnapshot(snap: Snapshot) -> None;
     async def reloadList -> None;
     async def loadWeek(offset: int) -> None;
     async def loadSettings -> None;
@@ -383,7 +413,15 @@ def:pub usePlanner -> Planner {
 
     can with [session.loggedIn] entry {
         if session.loggedIn {
-            loading = True;
+            # Paint the last data this browser saw at once, then refresh it.
+            cached = read_cached_snapshot(session.username);
+            if cached is not None {
+                applySnapshot(cached);
+                loading = False;
+                refreshing = True;
+            } else {
+                loading = True;
+            }
             refresh();
         } else {
             dashboard = None;

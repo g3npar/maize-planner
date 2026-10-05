@@ -24,27 +24,38 @@ impl usePlanner.refresh -> None {
         return;
     }
     try {
-        dash = root spawn get_dashboard();
-        dashboard = dash.reports[0] if dash.reports else None;
-        found = root spawn list_courses();
-        courses = found.reports[0] if found.reports else [];
-        items = root spawn list_assignments(
-            course=filterCourse, source=filterSource, status=filterStatus, search=""
+        res = root spawn load_all(
+            course=filterCourse,
+            source=filterSource,
+            status=filterStatus,
+            week_offset=weekOffset,
+            with_week=week is not None,
+            with_gradebook=bool(gradebook)
         );
-        assignments = items.reports[0] if items.reports else [];
-        if gradebook {
-            gb = root spawn list_assignments(course="", source="", status="all", search="");
-            gradebook = gb.reports[0] if gb.reports else gradebook;
-        }
-        if week is not None {
-            wk = root spawn get_week(offset=weekOffset);
-            week = wk.reports[0] if wk.reports else week;
+        if res.reports {
+            snap = res.reports[0];
+            applySnapshot(snap);
+            if not filterCourse and not filterSource and filterStatus == "open" {
+                write_cached_snapshot(session.username, snap);
+            }
         }
     } except Exception as e {
         fail(e);
     } finally {
         loading = False;
         refreshing = False;
+    }
+}
+
+impl usePlanner.applySnapshot(snap: Snapshot) -> None {
+    dashboard = snap.dashboard;
+    courses = snap.courses or [];
+    assignments = snap.assignments or [];
+    if snap.week is not None {
+        week = snap.week;
+    }
+    if snap.gradebook is not None {
+        gradebook = snap.gradebook;
     }
 }
 

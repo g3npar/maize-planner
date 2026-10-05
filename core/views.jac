@@ -194,3 +194,12 @@ obj QuickParse {
         priority: int = 2,
         points: float = 0.0;
 }
+
+"""Everything a screen shows, in one response (see the `load_all` walker)."""
+obj Snapshot {
+    has dashboard: Dashboard | None = None,
+        courses: list[CourseView] = [],
+        assignments: list[AssignmentView] = [],
+        week: WeekView | None = None,
+        gradebook: list[AssignmentView] | None = None;
+}
