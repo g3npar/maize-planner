@@ -73,7 +73,9 @@ The web UI is published to GitHub Pages as static files; the Jac server runs on 
 that the UI calls over HTTPS.
 
 1. **Database.** Create a free Postgres database (e.g. on [Neon](https://neon.tech)) and copy its
-   connection URL.
+   connection URL. Jac's Postgres client can't do TLS, which Neon requires, so the container runs
+   a small local proxy (`deploy/pg_tls_proxy.py`) that adds it; the URL's `?sslmode=...` part is
+   ignored. For a database reached over a private network without TLS, set `PG_TLS_PROXY=0`.
 2. **Server.** On [Render](https://render.com): **New → Blueprint**, pick this repo (it reads
    `render.yaml` and builds the `Dockerfile`), and paste the database URL into `JAC_DB_URL`.
    Optionally add `ANTHROPIC_API_KEY` for AI plans. Note the service URL, e.g.

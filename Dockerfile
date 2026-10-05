@@ -6,7 +6,10 @@
 #
 # Environment:
 #   JAC_DB_URL              Postgres URL (required on hosts without a disk,
-#                           otherwise the embedded database is lost on restart)
+#                           otherwise the embedded database is lost on restart).
+#                           Reached through deploy/pg_tls_proxy.py, which adds
+#                           the TLS Jac's client lacks (Neon requires it); set
+#                           PG_TLS_PROXY=0 for a database on a private network
 #   JAC_SERVE_AUTH_SECRET   fixed JWT secret so sign-ins survive restarts
 #   ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY   optional, turns on AI
 #   The server listens on port 8000.
@@ -30,4 +33,4 @@ RUN jac run --faux planner && rm -rf .jac/data
 
 EXPOSE 8000
 ENTRYPOINT []
-CMD ["jac", "run", "--serve", "planner", "--host", "0.0.0.0"]
+CMD ["/bin/sh", "/app/deploy/start.sh"]
