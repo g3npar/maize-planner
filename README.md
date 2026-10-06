@@ -103,9 +103,12 @@ The phone UI (`core/phone/`, written with Jac's mobUI, i.e. React Native primiti
    view updates instantly.
 2. **On your phone with Expo Go.** Keep `jac run` going, and in a second terminal:
    ```bash
-   jac setup mobile       # one-time: scaffolds the Expo project in .jac/mobile-rn
-   jac run --dev mobile   # starts Metro + a planner API on your LAN IP, prints a QR code
+   jac setup mobile                      # one-time: scaffolds the Expo project in .jac/mobile-rn
+   jac run --dev --platform auto mobile  # starts Metro + a planner API on your LAN IP, prints a QR code
    ```
+   Use `--platform auto` exactly as shown: without it Jac 0.37.21 tries to build an Android app for
+   the API backend (needs the Android SDK) and the phone can't sign in. Wait for
+   `Server ready (no client)` before signing in; the first start compiles for a few minutes.
    Scan the QR code with Expo Go and sign in with the same account. The dev command starts a planner
    backend on your LAN address (it prints `API : http://<your-ip>:<port>`). That backend uses the same
    project database as `jac run`, so the phone, web and CLI all see the same data. On WSL or a VPN,

@@ -21,6 +21,12 @@ entry-point = "cli.main"
 [apps.mobile]
 kind = "mobile"
 entry-point = "mobile.main"
+# Jac 0.37.21: `jac run --dev mobile` starts its API backend as a plain
+# `jac run --serve mobile/main.jac`, which for a native platform builds and
+# installs an Android app (needs the Android SDK) instead of serving, so the
+# phone can't sign in. With "web" here that backend just serves the API; the
+# dev command itself gets `--platform auto` (see README) to stay React Native.
+platform = "web"
 
 [dependencies]
 [dependencies.npm]
