@@ -107,8 +107,7 @@ impl usePlanner.quickAdd(text: str) -> bool {
         if res.reports {
             made = res.reports[0];
             notice = "Added “" + made.title + "” · " + made.course_code + " · " + made.due_label;
-            announce_change(instanceId);
-        await refresh();
+            settle();
             return True;
         }
     } except Exception as e {
@@ -135,8 +134,7 @@ impl usePlanner.saveAssignment(d: AssignmentDraft) -> AssignmentView | None {
         if res.reports {
             saved = res.reports[0];
             notice = ("Saved “" if d.id else "Added “") + saved.title + "”";
-            announce_change(instanceId);
-        await refresh();
+            settle();
             return saved;
         }
         error = "Give the assignment a title first.";
@@ -149,6 +147,9 @@ impl usePlanner.saveAssignment(d: AssignmentDraft) -> AssignmentView | None {
 """Reload once no status write is pending, then show hidden items again
 (the reload has dropped the ones that are done)."""
 impl usePlanner.settle -> None {
+    # Saves call this without waiting: the screen updates from the save's own
+    # reply, and the full reload (many queries on the hosted database) runs
+    # in the background.
     if PENDING["writes"] > 0 {
         return;
     }
@@ -212,8 +213,7 @@ impl usePlanner.setScore(id: str, score: float | None, points: float) -> None {
             replaceItem(res.reports[0]);
             notice = "Score saved - grades updated.";
         }
-        announce_change(instanceId);
-        await refresh();
+        settle();
     } except Exception as e {
         fail(e);
     }
@@ -226,8 +226,7 @@ impl usePlanner.deleteAssignment(id: str) -> None {
             notice = res.reports[0].message;
         }
         assignments = [a for a in assignments if a.id != id];
-        announce_change(instanceId);
-        await refresh();
+        settle();
     } except Exception as e {
         fail(e);
     }
@@ -239,8 +238,7 @@ impl usePlanner.toggleSubtask(id: str, index: int) -> None {
         if res.reports {
             replaceItem(res.reports[0]);
         }
-        announce_change(instanceId);
-        await refresh();
+        settle();
     } except Exception as e {
         fail(e);
     }
@@ -252,8 +250,7 @@ impl usePlanner.setSubtasks(id: str, steps: list[str], done: list[bool]) -> None
         if res.reports {
             replaceItem(res.reports[0]);
         }
-        announce_change(instanceId);
-        await refresh();
+        settle();
     } except Exception as e {
         fail(e);
     }
@@ -267,8 +264,7 @@ impl usePlanner.breakdownTask(id: str) -> None {
             replaceItem(res.reports[0]);
             notice = "Broke it into " + str(len(res.reports[0].subtasks)) + " steps.";
         }
-        announce_change(instanceId);
-        await refresh();
+        settle();
     } except Exception as e {
         fail(e);
     } finally {
@@ -295,8 +291,12 @@ impl usePlanner.saveCourse(d: CourseDraft) -> CourseView | None {
         if res.reports {
             saved = res.reports[0];
             notice = "Saved " + saved.code;
-            announce_change(instanceId);
-        await refresh();
+            if any([c.id == saved.id for c in courses]) {
+                courses = [saved if c.id == saved.id else c for c in courses];
+            } else {
+                courses = courses + [saved];
+            }
+            settle();
             return saved;
         }
         error = "A course needs a code like “EECS 482”.";
@@ -312,8 +312,8 @@ impl usePlanner.deleteCourse(id: str) -> None {
         if res.reports {
             notice = res.reports[0].message;
         }
-        announce_change(instanceId);
-        await refresh();
+        courses = [c for c in courses if c.id != id];
+        settle();
     } except Exception as e {
         fail(e);
     }
@@ -338,8 +338,7 @@ impl usePlanner.addMeeting(
         if res.reports {
             notice = "Added " + res.reports[0].kind + " · " + res.reports[0].days_label;
         }
-        announce_change(instanceId);
-        await refresh();
+        settle();
     } except Exception as e {
         fail(e);
     }
@@ -348,8 +347,7 @@ impl usePlanner.addMeeting(
 impl usePlanner.deleteMeeting(id: str) -> None {
     try {
         _ = root spawn delete_meeting(id=id);
-        announce_change(instanceId);
-        await refresh();
+        settle();
     } except Exception as e {
         fail(e);
     }
@@ -368,8 +366,7 @@ impl usePlanner.saveSettings(
         );
         settings = res.reports[0] if res.reports else settings;
         notice = "Settings saved.";
-        announce_change(instanceId);
-        await refresh();
+        settle();
     } except Exception as e {
         fail(e);
     }
@@ -380,8 +377,7 @@ impl usePlanner.saveCalendar(url: str, clear: bool) -> None {
         res = root spawn save_calendar(url=url, clear=clear);
         settings = res.reports[0] if res.reports else settings;
         notice = "Google Calendar disconnected." if clear else "Google Calendar saved.";
-        announce_change(instanceId);
-        await refresh();
+        settle();
     } except Exception as e {
         fail(e);
     }
